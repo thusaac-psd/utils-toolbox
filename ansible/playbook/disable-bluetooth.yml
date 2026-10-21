@@ -1,0 +1,11 @@
+---
+- name: Disable Bluetooth service
+  hosts: all
+  become: true
+
+  tasks:
+    - name: "Stop and disable the Bluetooth service"
+      ansible.builtin.systemd:
+        name: bluetooth
+        state: stopped
+        enabled: false

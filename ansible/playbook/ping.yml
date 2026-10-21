@@ -1,0 +1,26 @@
+---
+- name: Connectivity Audit
+  hosts: all
+  gather_facts: no # Do not gather facts, as it requires a working connection
+
+  tasks:
+    - name: Attempt to connect to hosts
+      ansible.builtin.wait_for_connection:
+        timeout: 2 # Seconds to wait before giving up
+      register: connection_result
+      ignore_errors: yes
+
+    - name: Record unreachable hosts to a local file
+      ansible.builtin.copy:
+        dest: "./unreachable_hosts.log"
+        content: |
+          UNREACHABLE HOSTS REPORT
+          Generated on: {{ now() }}
+          -----------------------------------
+          {% for host in ansible_play_hosts_all %}
+          {% if hostvars[host].connection_result.failed %}
+          {{ host }} - Reason: {{ hostvars[host].connection_result.msg | default('Timeout') }}
+          {% endif %}
+          {% endfor %}
+      delegate_to: localhost
+      run_once: yes

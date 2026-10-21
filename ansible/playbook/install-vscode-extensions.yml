@@ -1,0 +1,73 @@
+---
+- name: Install VS Code extensions for a specific user
+  hosts: all
+  become: true # Allows us to switch to the target user
+  vars_prompt:
+    - name: target_user
+      prompt: "Enter the username to install the VSCode extensions"
+      private: no
+
+  vars:
+    vscode_extensions:
+      - "ms-vscode.cpptools"
+      - "ms-python.python"
+      - "Oracle.oracle-java"
+      - "formulahendry.code-runner"
+      - "MS-CEINTL.vscode-language-pack-zh-hans"
+
+  tasks:
+    - name: "Check if target user exists"
+      ansible.builtin.user:
+        name: "{{ target_user }}"
+        state: present
+      check_mode: true # This just checks without making changes
+      register: user_check
+      ignore_errors: true # In case the user doesn't exist
+
+    - name: "Fail if target user does not exist"
+      ansible.builtin.fail:
+        msg: "The user '{{ target_user }}' does not exist on the host. Aborting."
+      when: user_check.failed
+
+    - name: "Get list of already installed extensions for {{ target_user }}"
+      ansible.builtin.command: "code --list-extensions"
+      register: installed_extensions
+      become_user: "{{ target_user }}" # Runs this command as the specified user
+      changed_when: false # This command doesn't change anything
+      failed_when: false # Don't fail if VS Code isn't installed or the user has no extensions
+
+    - name: "Determine which extensions need to be installed"
+      ansible.builtin.set_fact:
+        # The 'difference' filter is perfect for this. It returns items in the first
+        # list that are not in the second list.
+        extensions_to_install: "{{ vscode_extensions | difference(installed_extensions.stdout_lines | default([])) }}"
+      run_once: true # This calculation only needs to be done once
+
+    - name: "Report and install missing extensions in parallel"
+      # We use the 'shell' module because it supports features like '&' and 'wait'
+      ansible.builtin.shell: |
+        echo "Starting parallel installation of {{ extensions_to_install | length }} extension(s)..."
+        set -e # Exit immediately if any command fails
+        {% for ext in extensions_to_install %}
+        echo "Installing {{ ext }}..."
+        code --install-extension {{ ext }} &
+        {% endfor %}
+        wait
+        echo "All extension installations complete."
+      args:
+        # This makes the shell command appear cleanly in the Ansible output
+        executable: /bin/bash
+      become_user: "{{ target_user }}"
+      when: extensions_to_install | length > 0 # Only run this task if there's something to do
+      register: installation_result
+
+    - name: "Display installation summary"
+      ansible.builtin.debug:
+        msg: |
+          - No new extensions needed. All are already installed.
+      when: extensions_to_install | length == 0
+
+    - name: "Display installation output"
+      ansible.builtin.debug:
+        var: installation_result.stdout_lines
+      when: installation_result is changed

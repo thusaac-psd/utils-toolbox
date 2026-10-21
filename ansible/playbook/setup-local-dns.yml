@@ -1,0 +1,22 @@
+---
+- name: Configure local DNS mapping in /etc/hosts
+  hosts: all
+  become: yes
+
+  vars_prompt:
+    - name: target_ip
+      prompt: "Enter the target IP address (e.g., 10.0.0.200)"
+      private: no
+
+    - name: target_hostname
+      prompt: "Enter the target hostname (e.g., icpc.local)"
+      private: no
+
+  tasks:
+    - name: Ensure the IP and hostname mapping exists in /etc/hosts
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        # This regex ensures we replace the line if the hostname already exists, preventing duplicates
+        regexp: '.*\b{{ target_hostname }}\b.*'
+        line: "{{ target_ip }} {{ target_hostname }}"
+        state: present

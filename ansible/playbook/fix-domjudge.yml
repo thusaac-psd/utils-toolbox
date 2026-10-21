@@ -1,0 +1,58 @@
+---
+- name: Configure DOMjudge Environment and Fixes
+  hosts: all
+  become: yes
+  vars:
+    # Base directory for DOMjudge
+    domjudge_dir: "/opt/domjudge"
+
+    # REST API Configuration
+    api_url: ""
+    api_user: "judgehost"
+    api_pass: ""
+
+  tasks:
+    # ==========================================
+    # Task 1: Update REST API credentials
+    # ==========================================
+    - name: Configure restapi.secret for the judgehost
+      ansible.builtin.copy:
+        dest: "{{ domjudge_dir }}/judgehost/etc/restapi.secret"
+        content: "default {{ api_url }} {{ api_user }} {{ api_pass }}\n"
+        owner: domjudge
+        group: nogroup
+        mode: "0600"
+
+    # ==========================================
+    # Task 2: Modify sudoers file
+    # ==========================================
+    - name: Update sudoers chown command from root to domjudge
+      ansible.builtin.replace:
+        path: /etc/sudoers.d/sudoers-domjudge
+        regexp: '/bin/chown -R root\\: {{ domjudge_dir | regex_escape }}/judgehost/judgings/\*'
+        replace: '/bin/chown -R domjudge\\: {{ domjudge_dir }}/judgehost/judgings/*'
+        validate: /usr/sbin/visudo -cf %s
+
+    # ==========================================
+    # Task 3: Ensure runguard has SUID root permission
+    # ==========================================
+    - name: Set SUID root on runguard binary
+      ansible.builtin.file:
+        path: "{{ domjudge_dir }}/judgehost/bin/runguard"
+        owner: root
+        group: domjudge
+        mode: "4755" # rwsr-xr-x
+
+    # ==========================================
+    # Task 4: User and Group management
+    # ==========================================
+    - name: Ensure the domjudge-run group exists
+      ansible.builtin.group:
+        name: domjudge-run
+        state: present
+
+    - name: Add user domjudge-run-7 to the domjudge-run group
+      ansible.builtin.user:
+        name: domjudge-run-7
+        groups: domjudge-run
+        append: yes

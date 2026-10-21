@@ -1,0 +1,75 @@
+---
+- name: Remove a user and their files
+  hosts: all
+  become: true
+  vars_prompt:
+    - name: user_to_remove
+      prompt: "Enter the username to REMOVE"
+      private: no
+
+  vars:
+    potential_search_paths:
+      - /tmp
+      - /var/tmp
+      - /var/spool
+      - /run/user
+
+  tasks:
+    - name: "Fail if no username was provided"
+      ansible.builtin.fail:
+        msg: "Username cannot be empty. Aborting."
+      when: user_to_remove == ""
+
+    - name: "Step 1: Get user's UID (if they exist)"
+      ansible.builtin.command: "id -u {{ user_to_remove }}"
+      register: user_uid
+      changed_when: false
+      failed_when: false
+
+    - name: "Step 2: Terminate the systemd user slice"
+      ansible.builtin.systemd:
+        name: "user-{{ user_uid.stdout }}.slice"
+        state: stopped
+      when: user_uid.rc == 0
+      ignore_errors: true
+
+    - name: "Step 3: Forcefully kill any remaining processes"
+      ansible.builtin.command: "pkill -9 -u {{ user_to_remove }}"
+      register: pkill_result
+      failed_when: "pkill_result.rc > 1"
+      changed_when: "pkill_result.rc == 0"
+      when: user_uid.rc == 0
+
+    - name: "Step 4: Check which search paths exist on the target host"
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ potential_search_paths }}"
+      register: stat_results
+
+    - name: "Create a dynamic list of only the existing search paths"
+      ansible.builtin.set_fact:
+        existing_search_paths: "{{ stat_results.results | selectattr('stat.exists', 'equalto', true) | map(attribute='item') | list }}"
+
+    - name: "Step 5: Remove immutable attribute from all orphaned files"
+      ansible.builtin.shell:
+        cmd: "find {{ existing_search_paths | join(' ') }} -xdev -user {{ user_to_remove }} -print0 | xargs -0 chattr -i 2>/dev/null || true"
+      when:
+        - user_uid.rc == 0
+        - existing_search_paths | length > 0
+      changed_when: false
+
+    - name: "Step 6: Find and delete all orphaned files (The Fast Way)"
+      ansible.builtin.shell:
+        cmd: "find {{ existing_search_paths | join(' ') }} -xdev -user {{ user_to_remove }} -delete"
+      when:
+        - user_uid.rc == 0
+        - existing_search_paths | length > 0
+      register: find_delete_result
+      changed_when: "'find' in find_delete_result.stdout"
+
+    - name: "Step 7: Finalize by removing user account and home directory"
+      ansible.builtin.user:
+        name: "{{ user_to_remove }}"
+        state: absent
+        remove: true
+        force: true

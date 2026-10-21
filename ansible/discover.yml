@@ -1,0 +1,41 @@
+---
+- name: Discover reachable hosts
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Check if host is reachable
+      ansible.builtin.ping:
+      register: ping_result
+      ignore_unreachable: true
+
+    - name: Create a dynamic group of online hosts
+      ansible.builtin.group_by:
+        key: reachable_hosts
+      when: ping_result.ping == "pong"
+
+- name: Generate inventory file from discovered hosts
+  hosts: localhost # This play runs on the Ansible server
+  gather_facts: true # We need facts to get the date/time for the template
+  run_once: true
+  tasks:
+    - name: "Fail if no hosts were found"
+      ansible.builtin.fail:
+        msg: "No reachable hosts were found. No inventory file was generated."
+      # The 'groups' variable contains all groups, including our dynamic one
+      when: groups['reachable_hosts'] is not defined
+
+    - name: "Generate the inventory file from the template"
+      ansible.builtin.template:
+        src: ./inventory.j2 # Path to the template file we created
+        dest: ./discovered.ini # The name of the output file
+      vars:
+        # This makes the list of hosts in the 'reachable_hosts' group available
+        # to the template as a variable named 'discovered_ip_list'
+        discovered_ip_list: "{{ groups['reachable_hosts'] }}"
+
+    - name: "Success message"
+      ansible.builtin.debug:
+        msg: |
+          Successfully discovered {{ groups['reachable_hosts'] | length }} host(s).
+          Inventory saved to 'discovered_inventory.ini'.
+          You can now use this file with the -i flag.

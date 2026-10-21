@@ -1,0 +1,27 @@
+---
+- name: Remove a user and their home directory
+  hosts: all
+  become: true
+  vars_prompt:
+    - name: user_to_remove
+      prompt: "Enter the username to REMOVE"
+      private: no
+
+  tasks:
+    - name: "Fail if no username was provided"
+      ansible.builtin.fail:
+        msg: "Username cannot be empty. Aborting."
+      when: user_to_remove == ""
+
+    - name: "Kill processes for user {{ user_to_remove }}"
+      ansible.builtin.command: "pkill -u {{ user_to_remove }}"
+      register: pkill_result
+      failed_when: "pkill_result.rc > 1"
+      changed_when: "pkill_result.rc == 0"
+
+    - name: "Remove user '{{ user_to_remove }}'"
+      ansible.builtin.user:
+        name: "{{ user_to_remove }}"
+        state: absent
+        remove: true
+        force: true
