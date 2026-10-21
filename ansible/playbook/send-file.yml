@@ -1,0 +1,15 @@
+---
+- name: Send a file to managed computers
+  hosts: all
+  become: true
+  vars_prompt:
+    - name: src_file
+      prompt: "Enter the LOCAL path of the file to send"
+    - name: dest_file
+      prompt: "Enter the REMOTE destination path"
+
+  tasks:
+    - name: "Copy file to remote hosts"
+      ansible.builtin.copy:
+        src: "{{ src_file }}"
+        dest: "{{ dest_file }}"

@@ -1,0 +1,52 @@
+---
+- name: Configure .netrc for contestant machines
+  hosts: all
+  become: yes
+
+  vars_prompt:
+    - name: domjudge_url
+      prompt: "Enter URL (e.g., http://10.0.0.200/)"
+      private: no
+
+    - name: local_user
+      prompt: "Enter the local Linux user account (e.g., contestant)"
+      private: no
+
+    - name: csv_path
+      prompt: "Enter path to the CSV file on the control node"
+      private: no
+
+  tasks:
+    - name: Read CSV file data
+      community.general.read_csv:
+        path: "{{ csv_path }}"
+      register: csv_data
+      delegate_to: localhost
+      run_once: yes
+      become: no
+
+    - name: Find credentials for the current host
+      ansible.builtin.set_fact:
+        host_record: "{{ csv_data.list | selectattr('ip', 'equalto', inventory_hostname) | first }}"
+      ignore_errors: yes
+
+    - name: Ensure target user exists
+      ansible.builtin.user:
+        name: "{{ local_user }}"
+        state: present
+
+    - name: Create .netrc file securely
+      ansible.builtin.copy:
+        dest: "/home/{{ local_user }}/.netrc"
+        owner: "{{ local_user }}"
+        mode: "0600"
+        content: |
+          machine {{ domjudge_url | regex_replace('^https?://([^/:]+).*', '\1') }}
+          login {{ host_record.oj_username }}
+          password {{ host_record.oj_password }}
+      when: host_record is defined
+
+    - name: Warn if host was not found in CSV
+      ansible.builtin.debug:
+        msg: "WARNING: No matching record found in CSV for host {{ inventory_hostname }}"
+      when: host_record is not defined

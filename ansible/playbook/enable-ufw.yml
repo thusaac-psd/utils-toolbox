@@ -1,0 +1,47 @@
+---
+- name: Configure UFW firewall
+  hosts: all
+  become: true
+  vars_prompt:
+    - name: allowed_out_ip
+      prompt: "Enter the IP to allow OUTWARD connections to"
+      private: no
+    - name: allowed_out_port
+      prompt: "Enter the port for the outward connection"
+      private: no
+
+  tasks:
+    - name: "Ensure ufw is installed"
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+
+    - name: "Reset UFW to a clean state"
+      community.general.ufw:
+        state: reset
+
+    - name: "Set default firewall policies..."
+      community.general.ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: "incoming", policy: "allow" }
+        - { direction: "outgoing", policy: "deny" }
+
+    - name: "Allow all incoming traffic on the SSH port"
+      community.general.ufw:
+        rule: allow
+        direction: in
+        port: "22"
+        proto: tcp
+
+    - name: "Allow outgoing traffic to {{ allowed_out_ip }} on port {{ allowed_out_port }}"
+      community.general.ufw:
+        rule: allow
+        direction: out
+        to_ip: "{{ allowed_out_ip }}"
+        to_port: "{{ allowed_out_port }}"
+
+    - name: "Enable the UFW firewall"
+      community.general.ufw:
+        state: enabled

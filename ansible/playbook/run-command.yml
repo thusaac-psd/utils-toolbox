@@ -1,0 +1,17 @@
+---
+- name: Run a shell command
+  hosts: all
+  become: true
+  vars_prompt:
+    - name: command_to_run
+      prompt: "Enter the shell command to execute"
+      private: no
+
+  tasks:
+    - name: "Execute the given command"
+      ansible.builtin.shell: "{{ command_to_run }}"
+      register: command_output
+
+    - name: "Display the command output"
+      ansible.builtin.debug:
+        msg: "{{ command_output.stdout_lines }}"

@@ -1,0 +1,14 @@
+---
+- name: Disable UFW firewall
+  hosts: all
+  become: true
+
+  tasks:
+    - name: "Ensure ufw is installed"
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+
+    - name: "Enable the UFW firewall"
+      community.general.ufw:
+        state: disabled
