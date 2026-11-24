@@ -22,4 +22,4 @@
         src: "{{ src_file }}"
         dest: "{{ dest_file }}"
         owner: "{{ dest_owner | default(omit) }}"
-        mode: "{{ dest_mode | default('0644') }}"
+        mode: "{{ dest_mode | default(omit) }}"

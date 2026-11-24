@@ -12,11 +12,16 @@
       private: true
       confirm: true
   tasks:
-    - name: Validate the requested account
+    - name: Validate the requested username
       ansible.builtin.assert:
         that:
           - (new_username | default('')) is match('^[a-z_][a-z0-9_-]*[$]?$')
           - new_username != 'root'
+        fail_msg: "Enter a valid contest username other than root."
+
+    - name: Require a non-empty password
+      ansible.builtin.assert:
+        that:
           - new_user_password | default('') | length > 0
       no_log: true
 

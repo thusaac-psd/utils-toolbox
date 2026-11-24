@@ -45,11 +45,6 @@
                  contest_credentials.dict.get(ansible_host | default(inventory_hostname) | string)) }}
       no_log: true
 
-    - name: Report a missing CSV entry
-      ansible.builtin.debug:
-        msg: "No CSV entry for {{ inventory_hostname }} (lookup address or key: {{ netrc_host_key | default(ansible_host | default(inventory_hostname)) }})."
-      when: host_record is none
-
     - name: Configure credentials for a matched host
       when: host_record is not none
       block:
@@ -76,3 +71,14 @@
               password {{ host_record.oj_password }}
           no_log: true
           diff: false
+
+    - name: Fail with a list of hosts missing from the CSV
+      ansible.builtin.fail:
+        msg: "No CSV credentials for: {{ missing_hosts | join(', ') }}."
+      vars:
+        missing_hosts: >-
+          {{ ansible_play_hosts_all | map('extract', hostvars)
+             | selectattr('host_record', 'defined') | selectattr('host_record', 'none')
+             | map(attribute='inventory_hostname') | sort }}
+      when: missing_hosts | length > 0
+      run_once: true

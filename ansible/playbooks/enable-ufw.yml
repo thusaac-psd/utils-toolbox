@@ -77,7 +77,8 @@
             from_ip: "{{ ufw_management_network }}"
             to_port: "{{ management_ssh.stdout.split()[3] }}"
             proto: tcp
-            insert: 1
+            insert: 0
+            insert_relative_to: "{{ 'first-ipv6' if ':' in ufw_management_network else 'first-ipv4' }}"
 
         - name: Allow the configured outbound services
           community.general.ufw:

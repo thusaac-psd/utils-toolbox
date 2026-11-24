@@ -1,7 +1,7 @@
 # Reachable hosts as of {{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}.
 [reachable]
 {% for host in reachable_hosts %}
-{{ host }}{% for key in ['ansible_host', 'ansible_port', 'ansible_user', 'ansible_connection'] if key in hostvars[host] %} {{ key }}={{ hostvars[host][key] | string | to_json }}{% endfor %}{{ '\n' }}
+{{ host }}{% for key in ['ansible_host', 'ansible_port', 'ansible_user', 'ansible_connection'] if key in hostvars[host] %} {{ key }}={{ hostvars[host][key] | string | to_json }}{% endfor %}{{ '\n' -}}
 {% endfor %}
 {% for role in ['contestants', 'judgehosts'] %}
 {% set members = groups.get(role, []) | intersect(reachable_hosts) | sort %}

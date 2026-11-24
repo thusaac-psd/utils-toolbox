@@ -3,7 +3,7 @@
   hosts: contestants
   gather_facts: false
   become: true
-  any_errors_fatal: true
+  strategy: linear
   vars:
     cleanup_paths:
       - /tmp
@@ -17,6 +17,7 @@
       private: false
   pre_tasks:
     - name: Require an explicitly managed contest account
+      any_errors_fatal: true
       ansible.builtin.assert:
         that:
           - (user_to_remove | default('')) is match('^[a-z_][a-z0-9_-]*[$]?$')
@@ -44,6 +45,7 @@
       check_mode: false
 
     - name: Protect the management login and system accounts
+      any_errors_fatal: true
       ansible.builtin.assert:
         that:
           - user_to_remove != (ansible_user | default(''))

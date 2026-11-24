@@ -6,5 +6,7 @@ discovered.ini
 unreachable_hosts.log
 *.retry
 ansible-key*
+/ansible/inventories/site/
+/ansible/inventories/site.*
 *.csv
 __pycache__/
