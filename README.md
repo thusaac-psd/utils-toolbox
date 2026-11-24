@@ -1,5 +1,7 @@
 A collection of handy scripts, configurations, and operational notes for running programming contests. **Work in progress.**
 
+See the [Ansible guide](ansible/README.md) for inventory examples and playbook usage.
+
 ## Proposed Repository Structure
 
 ```text

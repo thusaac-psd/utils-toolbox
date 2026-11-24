@@ -1,11 +1,26 @@
 ---
 - name: Disable Bluetooth service
-  hosts: all
+  hosts: contestants
+  gather_facts: false
   become: true
-
   tasks:
-    - name: "Stop and disable the Bluetooth service"
-      ansible.builtin.systemd:
-        name: bluetooth
+    - name: Gather installed services
+      ansible.builtin.service_facts:
+
+    - name: Stop the Bluetooth service
+      ansible.builtin.systemd_service:
+        name: bluetooth.service
         state: stopped
+      when: ansible_facts.services.get('bluetooth.service', {}).get('status', 'not-found') != 'not-found'
+
+    - name: Disable the Bluetooth service
+      ansible.builtin.systemd_service:
+        name: bluetooth.service
         enabled: false
+      when: ansible_facts.services.get('bluetooth.service', {}).get('status', 'not-found') not in ['not-found', 'masked', 'static']
+
+    - name: Mask the Bluetooth service
+      ansible.builtin.systemd_service:
+        name: bluetooth.service
+        masked: true
+      when: ansible_facts.services.get('bluetooth.service', {}).get('status', 'not-found') != 'not-found'

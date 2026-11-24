@@ -1,0 +1,35 @@
+---
+- name: Check which cleanup directories exist
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ cleanup_paths }}"
+  register: cleanup_path_status
+
+- name: Record existing cleanup directories
+  ansible.builtin.set_fact:
+    existing_cleanup_paths: "{{ cleanup_path_status.results | selectattr('stat.isdir', 'defined') | selectattr('stat.isdir') | map(attribute='item') | list }}"
+
+- name: Clear immutable attributes and remove owned files
+  when:
+    - existing_cleanup_paths | length > 0
+    - not ansible_check_mode
+  block:
+    - name: Clear immutable attributes where the filesystem supports them
+      ansible.builtin.command:
+        argv: >-
+          {{ ['find'] + existing_cleanup_paths
+             + ['-xdev', '-depth', '-mindepth', '1', '-uid', removal_account[1],
+                '(', '-type', 'f', '-o', '-type', 'd', ')', '-execdir', 'chattr', '-i', '{}', '+'] }}
+      environment:
+        PATH: /usr/sbin:/usr/bin:/sbin:/bin
+      changed_when: false
+      failed_when: false
+
+    - name: Delete files owned by the account within the selected directories
+      ansible.builtin.command:
+        argv: >-
+          {{ ['find'] + existing_cleanup_paths
+             + ['-xdev', '-depth', '-mindepth', '1', '-uid', removal_account[1],
+                '(', '!', '-type', 'd', '-o', '-empty', ')', '-delete', '-print'] }}
+      register: removed_files
+      changed_when: removed_files.stdout_lines | length > 0

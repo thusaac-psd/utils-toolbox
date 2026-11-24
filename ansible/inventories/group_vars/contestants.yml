@@ -1,0 +1,13 @@
+---
+contest_managed_accounts: [contestant]
+contest_protected_accounts: [operator]
+
+ufw_management_network: 192.0.2.0/28
+ufw_outbound_rules:
+  - ip: 192.0.2.40
+    port: 443
+  - ip: 192.0.2.41
+    port: 631
+  - ip: 192.0.2.53
+    port: 53
+    proto: udp

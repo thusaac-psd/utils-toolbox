@@ -1,14 +1,14 @@
 ---
-- name: Disable UFW firewall
-  hosts: all
+- name: Disable UFW on contestant machines
+  hosts: contestants
+  gather_facts: false
   become: true
-
   tasks:
-    - name: "Ensure ufw is installed"
-      ansible.builtin.apt:
-        name: ufw
-        state: present
+    - name: Check installed packages
+      ansible.builtin.package_facts:
+        manager: auto
 
-    - name: "Enable the UFW firewall"
+    - name: Disable the UFW firewall
       community.general.ufw:
         state: disabled
+      when: "'ufw' in ansible_facts.packages"

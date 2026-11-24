@@ -1,20 +1,38 @@
 ---
-- name: Create a new standard user
-  hosts: all
+- name: Create a standard contest user
+  hosts: contestants
+  gather_facts: false
   become: true
   vars_prompt:
     - name: new_username
       prompt: "Enter the new username"
-      private: no
+      private: false
     - name: new_user_password
       prompt: "Enter the password for the new user"
-      private: yes # 'yes' hides the password as you type
-
+      private: true
+      confirm: true
   tasks:
-    - name: "Create user '{{ new_username }}'"
+    - name: Validate the requested account
+      ansible.builtin.assert:
+        that:
+          - (new_username | default('')) is match('^[a-z_][a-z0-9_-]*[$]?$')
+          - new_username != 'root'
+          - new_user_password | default('') | length > 0
+      no_log: true
+
+    - name: Check whether the account already exists
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ new_username }}"
+        fail_key: false
+
+    - name: Create the account with its initial password
       ansible.builtin.user:
         name: "{{ new_username }}"
         password: "{{ new_user_password | password_hash('sha512') }}"
-        state: present
+        update_password: on_create
         shell: /bin/bash
         create_home: true
+        state: present
+      no_log: true
+      when: ansible_facts.getent_passwd[new_username] is none

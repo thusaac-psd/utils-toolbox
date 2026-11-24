@@ -1,22 +1,22 @@
 ---
-- name: Configure local DNS mapping in /etc/hosts
-  hosts: all
-  become: yes
-
+- name: Configure a local hosts-file mapping
+  hosts: contestants
+  gather_facts: false
+  become: true
   vars_prompt:
     - name: target_ip
-      prompt: "Enter the target IP address (e.g., 10.0.0.200)"
-      private: no
-
+      prompt: "Enter the target IP address (e.g. 192.0.2.20)"
+      private: false
     - name: target_hostname
-      prompt: "Enter the target hostname (e.g., icpc.local)"
-      private: no
-
+      prompt: "Enter the hostname (e.g. domjudge.example)"
+      private: false
   tasks:
-    - name: Ensure the IP and hostname mapping exists in /etc/hosts
-      ansible.builtin.lineinfile:
-        path: /etc/hosts
-        # This regex ensures we replace the line if the hostname already exists, preventing duplicates
-        regexp: '.*\b{{ target_hostname }}\b.*'
-        line: "{{ target_ip }} {{ target_hostname }}"
-        state: present
+    - name: Read the current hosts file
+      ansible.builtin.slurp:
+        src: /etc/hosts
+      register: current_hosts
+
+    - name: Update the exact hostname while preserving other aliases and comments
+      ansible.builtin.copy:
+        dest: /etc/hosts
+        content: "{{ current_hosts.content | b64decode | contest_update_hosts_file(target_ip, target_hostname) }}"

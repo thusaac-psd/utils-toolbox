@@ -1,52 +1,78 @@
 ---
-- name: Configure .netrc for contestant machines
-  hosts: all
-  become: yes
-
+- name: Configure .netrc on contestant machines
+  hosts: contestants
+  gather_facts: false
+  become: true
+  strategy: linear
   vars_prompt:
     - name: domjudge_url
-      prompt: "Enter URL (e.g., http://10.0.0.200/)"
-      private: no
-
+      prompt: "Enter the DOMjudge HTTP(S) URL"
+      private: false
     - name: local_user
-      prompt: "Enter the local Linux user account (e.g., contestant)"
-      private: no
-
+      prompt: "Enter the existing Linux user account"
+      private: false
     - name: csv_path
-      prompt: "Enter path to the CSV file on the control node"
-      private: no
+      prompt: "Enter the absolute controller path to the CSV (ip,oj_username,oj_password)"
+      private: false
 
   tasks:
-    - name: Read CSV file data
+    - name: Validate the URL and CSV source
+      ansible.builtin.assert:
+        that:
+          - (domjudge_url | urlsplit('scheme')) in ['http', 'https']
+          - (domjudge_url | urlsplit('hostname')) is string
+          - csv_path is abs
+      run_once: true
+
+    - name: Read team credentials from the controller
       community.general.read_csv:
         path: "{{ csv_path }}"
-      register: csv_data
+        key: ip
+        unique: true
+        strict: true
+      register: contest_credentials
       delegate_to: localhost
-      run_once: yes
-      become: no
+      run_once: true
+      become: false
+      no_log: true
 
     - name: Find credentials for the current host
       ansible.builtin.set_fact:
-        host_record: "{{ csv_data.list | selectattr('ip', 'equalto', inventory_hostname) | first }}"
-      ignore_errors: yes
+        host_record: >-
+          {{ contest_credentials.dict.get(netrc_host_key | string)
+             if netrc_host_key is defined
+             else contest_credentials.dict.get(inventory_hostname,
+                 contest_credentials.dict.get(ansible_host | default(inventory_hostname) | string)) }}
+      no_log: true
 
-    - name: Ensure target user exists
-      ansible.builtin.user:
-        name: "{{ local_user }}"
-        state: present
-
-    - name: Create .netrc file securely
-      ansible.builtin.copy:
-        dest: "/home/{{ local_user }}/.netrc"
-        owner: "{{ local_user }}"
-        mode: "0600"
-        content: |
-          machine {{ domjudge_url | regex_replace('^https?://([^/:]+).*', '\1') }}
-          login {{ host_record.oj_username }}
-          password {{ host_record.oj_password }}
-      when: host_record is defined
-
-    - name: Warn if host was not found in CSV
+    - name: Report a missing CSV entry
       ansible.builtin.debug:
-        msg: "WARNING: No matching record found in CSV for host {{ inventory_hostname }}"
-      when: host_record is not defined
+        msg: "No CSV entry for {{ inventory_hostname }} (lookup address or key: {{ netrc_host_key | default(ansible_host | default(inventory_hostname)) }})."
+      when: host_record is none
+
+    - name: Configure credentials for a matched host
+      when: host_record is not none
+      block:
+        - name: Look up the existing local user and its home directory
+          ansible.builtin.getent:
+            database: passwd
+            key: "{{ local_user }}"
+
+        - name: Check credential fields
+          ansible.builtin.assert:
+            that:
+              - (host_record.oj_username | default('')) is match('^[^\s"]+$')
+              - (host_record.oj_password | default('')) is match('^[^\s"]+$')
+          no_log: true
+
+        - name: Write the team credentials to .netrc
+          ansible.builtin.copy:
+            dest: "{{ ansible_facts.getent_passwd[local_user][4] }}/.netrc"
+            owner: "{{ local_user }}"
+            mode: "0600"
+            content: |
+              machine {{ domjudge_url | urlsplit('hostname') }}
+              login {{ host_record.oj_username }}
+              password {{ host_record.oj_password }}
+          no_log: true
+          diff: false

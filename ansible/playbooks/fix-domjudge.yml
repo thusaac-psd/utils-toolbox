@@ -1,58 +1,90 @@
 ---
-- name: Configure DOMjudge Environment and Fixes
-  hosts: all
-  become: yes
+# For source installs with the judgehost/ prefix and upstream sudoers rules.
+# Use to provision judgehost API credentials and daemon run accounts.
+# Site-specific sudoers/chroot ownership fixes depend on the installed version.
+- name: Configure the DOMjudge judgehost
+  hosts: judgehosts
+  gather_facts: false
+  become: true
+  any_errors_fatal: true
   vars:
-    # Base directory for DOMjudge
-    domjudge_dir: "/opt/domjudge"
+    domjudge_dir: /opt/domjudge
+    domjudge_user: domjudge
+    api_user: judgehost
 
-    # REST API Configuration
-    api_url: ""
-    api_user: "judgehost"
-    api_pass: ""
+  vars_prompt:
+    - name: api_url
+      prompt: "Enter the DOMjudge HTTP(S) API URL"
+      private: false
+    - name: api_pass
+      prompt: "Enter the judgehost API password"
+      private: true
+
+  pre_tasks:
+    - name: Require valid API credentials
+      ansible.builtin.assert:
+        that:
+          - (api_url | default('') | urlsplit('scheme')) in ['http', 'https']
+          - (api_url | urlsplit('hostname')) is string
+          - api_url is match('^\S+$')
+          - (api_user | default('')) is match('^\S+$')
+          - (api_pass | default('')) is match('^\S+$')
+      no_log: true
+
+    - name: Validate the requested judge daemon account numbers
+      ansible.builtin.assert:
+        that:
+          - domjudge_run_ids is sequence and domjudge_run_ids is not string and domjudge_run_ids is not mapping
+          - domjudge_run_ids | length > 0
+          - domjudge_run_ids | map('string') | reject('match', '^(0|[1-9][0-9]*)$') | list | length == 0
+          - domjudge_run_ids | map('string') | unique | list | length == domjudge_run_ids | length
+        fail_msg: "Set domjudge_run_ids to the judge daemon numbers for this host."
+
+    - name: Verify the upstream sudo rule for runguard
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - -l
+          - -U
+          - "{{ domjudge_user }}"
+          - --
+          - "{{ domjudge_dir }}/judgehost/bin/runguard"
+      changed_when: false
+      check_mode: false
 
   tasks:
-    # ==========================================
-    # Task 1: Update REST API credentials
-    # ==========================================
-    - name: Configure restapi.secret for the judgehost
-      ansible.builtin.copy:
-        dest: "{{ domjudge_dir }}/judgehost/etc/restapi.secret"
-        content: "default {{ api_url }} {{ api_user }} {{ api_pass }}\n"
-        owner: domjudge
-        group: nogroup
-        mode: "0600"
-
-    # ==========================================
-    # Task 2: Modify sudoers file
-    # ==========================================
-    - name: Update sudoers chown command from root to domjudge
-      ansible.builtin.replace:
-        path: /etc/sudoers.d/sudoers-domjudge
-        regexp: '/bin/chown -R root\\: {{ domjudge_dir | regex_escape }}/judgehost/judgings/\*'
-        replace: '/bin/chown -R domjudge\\: {{ domjudge_dir }}/judgehost/judgings/*'
-        validate: /usr/sbin/visudo -cf %s
-
-    # ==========================================
-    # Task 3: Ensure runguard has SUID root permission
-    # ==========================================
-    - name: Set SUID root on runguard binary
+    - name: Use normal executable permissions for runguard
       ansible.builtin.file:
         path: "{{ domjudge_dir }}/judgehost/bin/runguard"
         owner: root
-        group: domjudge
-        mode: "4755" # rwsr-xr-x
+        group: "{{ domjudge_user }}"
+        mode: "0755"
+        state: file
 
-    # ==========================================
-    # Task 4: User and Group management
-    # ==========================================
-    - name: Ensure the domjudge-run group exists
+    - name: Write judgehost API credentials
+      ansible.builtin.copy:
+        dest: "{{ domjudge_dir }}/judgehost/etc/restapi.secret"
+        content: "default {{ api_url }} {{ api_user }} {{ api_pass }}\n"
+        owner: "{{ domjudge_user }}"
+        mode: "0600"
+      no_log: true
+      diff: false
+
+    - name: Ensure the shared domjudge-run group exists
       ansible.builtin.group:
         name: domjudge-run
         state: present
+      register: domjudge_run_group
 
-    - name: Add user domjudge-run-7 to the domjudge-run group
+    - name: Configure unprivileged judge daemon accounts
       ansible.builtin.user:
-        name: domjudge-run-7
+        name: "domjudge-run-{{ item }}"
         groups: domjudge-run
-        append: yes
+        append: true
+        home: /nonexistent
+        create_home: false
+        shell: /bin/false
+        state: present
+      loop: "{{ domjudge_run_ids }}"
+      when: not (ansible_check_mode and domjudge_run_group is changed)
