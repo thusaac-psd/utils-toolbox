@@ -1,3 +1,0 @@
----
-- name: Configure the DOMjudge judgehost using the original playbook name
-  ansible.builtin.import_playbook: configure-judgehost.yml

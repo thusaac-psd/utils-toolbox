@@ -11,12 +11,6 @@
       prompt: "Enter the absolute destination path on the remote hosts"
       private: false
   tasks:
-    - name: Validate source and destination paths
-      ansible.builtin.assert:
-        that:
-          - src_file is abs
-          - dest_file is abs
-
     - name: Copy the file to the remote hosts
       ansible.builtin.copy:
         src: "{{ src_file }}"

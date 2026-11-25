@@ -11,12 +11,8 @@
       prompt: "Enter the hostname (e.g. domjudge.example)"
       private: false
   tasks:
-    - name: Read the current hosts file
-      ansible.builtin.slurp:
-        src: /etc/hosts
-      register: current_hosts
-
-    - name: Update the exact hostname while preserving other aliases and comments
-      ansible.builtin.copy:
-        dest: /etc/hosts
-        content: "{{ current_hosts.content | b64decode | contest_update_hosts_file(target_ip, target_hostname) }}"
+    - name: Map the hostname in /etc/hosts, replacing any line that already lists it
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^[^#]*\s{{ target_hostname | regex_escape }}(\s|$)'
+        line: "{{ target_ip }} {{ target_hostname }}"

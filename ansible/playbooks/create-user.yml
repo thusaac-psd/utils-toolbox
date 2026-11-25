@@ -1,5 +1,5 @@
 ---
-- name: Create a standard contest user
+- name: Create a contest user
   hosts: contestants
   gather_facts: false
   become: true
@@ -12,24 +12,10 @@
       private: true
       confirm: true
   tasks:
-    - name: Validate the requested username
+    - name: Refuse an empty password
       ansible.builtin.assert:
-        that:
-          - (new_username | default('')) is match('^[a-z_][a-z0-9_-]*[$]?$')
-          - new_username != 'root'
-        fail_msg: "Enter a valid contest username other than root."
-
-    - name: Require a non-empty password
-      ansible.builtin.assert:
-        that:
-          - new_user_password | default('') | length > 0
+        that: new_user_password | length > 0
       no_log: true
-
-    - name: Check whether the account already exists
-      ansible.builtin.getent:
-        database: passwd
-        key: "{{ new_username }}"
-        fail_key: false
 
     - name: Create the account with its initial password
       ansible.builtin.user:
@@ -37,7 +23,4 @@
         password: "{{ new_user_password | password_hash('sha512') }}"
         update_password: on_create
         shell: /bin/bash
-        create_home: true
-        state: present
       no_log: true
-      when: ansible_facts.getent_passwd[new_username] is none

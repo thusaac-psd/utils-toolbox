@@ -1,8 +1,8 @@
 ---
 - name: Run a shell command on contestant machines
   hosts: contestants
-  become: true
   gather_facts: false
+  become: true
   vars_prompt:
     - name: command_to_run
       prompt: "Enter the shell command to execute"
@@ -17,4 +17,3 @@
         msg:
           stdout: "{{ command_output.stdout_lines }}"
           stderr: "{{ command_output.stderr_lines }}"
-      when: command_output is not skipped

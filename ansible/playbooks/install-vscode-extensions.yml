@@ -15,34 +15,16 @@
       - formulahendry.code-runner
       - MS-CEINTL.vscode-language-pack-zh-hans
   tasks:
-    - name: Look up the target user
-      ansible.builtin.getent:
-        database: passwd
-        key: "{{ target_user }}"
-
     - name: List installed extensions
       ansible.builtin.command: code --list-extensions
       become_user: "{{ target_user }}"
-      environment:
-        HOME: "{{ ansible_facts.getent_passwd[target_user][4] }}"
       register: installed_extensions
       changed_when: false
-      check_mode: false
-
-    - name: Find missing extensions on this host
-      ansible.builtin.set_fact:
-        extensions_to_install: "{{ vscode_extensions | map('lower') | difference(installed_extensions.stdout_lines | map('lower')) | sort }}"
 
     - name: Install missing extensions
       ansible.builtin.command:
-        argv: "{{ ['code'] + (['--install-extension'] | product(extensions_to_install) | flatten) }}"
+        argv: "{{ ['code'] + (['--install-extension'] | product(missing_extensions) | flatten) }}"
       become_user: "{{ target_user }}"
-      environment:
-        HOME: "{{ ansible_facts.getent_passwd[target_user][4] }}"
-      changed_when: true
-      when: extensions_to_install | length > 0
-
-    - name: Report when the extensions are already installed
-      ansible.builtin.debug:
-        msg: "All requested extensions are already installed."
-      when: extensions_to_install | length == 0
+      vars:
+        missing_extensions: "{{ vscode_extensions | map('lower') | difference(installed_extensions.stdout_lines | map('lower')) }}"
+      when: missing_extensions | length > 0

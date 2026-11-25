@@ -1,6 +1,5 @@
 ---
 contest_managed_accounts: [contestant]
-contest_protected_accounts: [operator]
 
 ufw_management_network: 192.0.2.0/28
 ufw_outbound_rules:

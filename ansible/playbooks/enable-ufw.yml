@@ -1,128 +1,63 @@
 ---
+# Replaces all existing UFW rules with the contest policy, one host at a time.
 - name: Restrict network access on contestant machines
   hosts: contestants
   gather_facts: false
   become: true
   serial: 1
   any_errors_fatal: true
-  vars:
-    previous_unrestricted_ssh_port: 22
-    retired_outbound_rules: "{{ ufw_retired_outbound_rules | default([]) }}"
-
-  pre_tasks:
-    - name: Validate the firewall configuration
-      ansible.builtin.assert:
-        that:
-          - ufw_management_network is string
-          - ufw_management_network | contest_ip_network
-          - ufw_management_network not in ['0.0.0.0/0', '::/0']
-          - ufw_outbound_rules is sequence and ufw_outbound_rules is not string and ufw_outbound_rules is not mapping
-          - retired_outbound_rules is sequence
-          - retired_outbound_rules is not string
-          - retired_outbound_rules is not mapping
-        fail_msg: "Set ufw_management_network and ufw_outbound_rules in the inventory."
-
-    - name: Validate each outbound rule before touching the firewall
-      ansible.builtin.assert:
-        that:
-          - item is mapping
-          - item.ip is string
-          - item.ip | contest_ip_network
-          - (item.port | string) is match('^[0-9]+$')
-          - (item.port | int) in range(1, 65536)
-          - (item.proto | default('tcp')) in ['tcp', 'udp', 'any']
-      loop: "{{ ufw_outbound_rules + retired_outbound_rules }}"
-
-    - name: Restrict new outbound rules to explicit transport protocols
-      ansible.builtin.assert:
-        that:
-          - (item.proto | default('tcp')) in ['tcp', 'udp']
-          - (item.ip, item.port | string, item.proto | default('tcp')) not in retired_rule_keys
-      vars:
-        retired_rule_keys: >-
-          {{ retired_outbound_rules | map(attribute='ip')
-             | zip(retired_outbound_rules | map(attribute='port') | map('string'),
-                   retired_outbound_rules | map(attribute='proto', default='tcp'))
-             | list }}
-      loop: "{{ ufw_outbound_rules }}"
-
-    - name: Read the current management SSH connection
+  tasks:
+    - name: Read the management SSH connection
       ansible.builtin.command: printenv SSH_CONNECTION
       become: false
       register: management_ssh
       changed_when: false
-      check_mode: false
 
-    - name: Ensure the management network includes the current SSH source address
+    - name: Refuse rules that would lock out the current SSH connection
       ansible.builtin.assert:
-        that:
-          - management_ssh.stdout.split() | length == 4
-          - management_ssh.stdout.split()[0] | contest_ip_in_network(ufw_management_network)
-        fail_msg: "ufw_management_network must contain the SSH source IP as seen by this host."
+        that: management_ssh.stdout.split()[0] | ip_in_network(ufw_management_network)
+        fail_msg: "ufw_management_network must contain {{ management_ssh.stdout.split()[0] }}."
 
-  tasks:
     - name: Ensure UFW is installed
       ansible.builtin.apt:
         name: ufw
         state: present
-      register: ufw_package
 
-    - name: Apply firewall rules
-      when: not (ansible_check_mode and ufw_package is changed)
-      block:
-        - name: Allow management SSH before applying restrictive policies
-          community.general.ufw:
-            rule: allow
-            direction: in
-            from_ip: "{{ ufw_management_network }}"
-            to_port: "{{ management_ssh.stdout.split()[3] }}"
-            proto: tcp
-            insert: 0
-            insert_relative_to: "{{ 'first-ipv6' if ':' in ufw_management_network else 'first-ipv4' }}"
+    - name: Reset UFW
+      community.general.ufw:
+        state: reset
 
-        - name: Allow the configured outbound services
-          community.general.ufw:
-            rule: allow
-            direction: out
-            to_ip: "{{ item.ip }}"
-            to_port: "{{ item.port | string }}"
-            proto: "{{ item.proto | default('tcp') }}"
-          loop: "{{ ufw_outbound_rules }}"
+    - name: Allow SSH from the management network
+      community.general.ufw:
+        rule: allow
+        direction: in
+        from_ip: "{{ ufw_management_network }}"
+        to_port: "{{ management_ssh.stdout.split()[3] }}"
+        proto: tcp
 
-        - name: Remove explicitly retired outbound rules
-          community.general.ufw:
-            rule: allow
-            direction: out
-            to_ip: "{{ item.ip }}"
-            to_port: "{{ item.port | string }}"
-            proto: "{{ omit if item.proto | default('tcp') == 'any' else item.proto | default('tcp') }}"
-            delete: true
-          loop: "{{ retired_outbound_rules }}"
+    - name: Allow the configured outbound services
+      community.general.ufw:
+        rule: allow
+        direction: out
+        to_ip: "{{ item.ip }}"
+        to_port: "{{ item.port }}"
+        proto: "{{ item.proto | default('tcp') }}"
+      loop: "{{ ufw_outbound_rules }}"
 
-        - name: Remove the previous playbook's unrestricted SSH rule
-          community.general.ufw:
-            rule: allow
-            direction: in
-            to_port: "{{ previous_unrestricted_ssh_port }}"
-            proto: tcp
-            delete: true
+    - name: Deny other inbound and outbound traffic
+      community.general.ufw:
+        direction: "{{ item }}"
+        policy: deny
+      loop: [incoming, outgoing]
 
-        - name: Deny inbound and outbound traffic by default
-          community.general.ufw:
-            direction: "{{ item }}"
-            policy: deny
-          loop: [incoming, outgoing]
-
-        - name: Enable UFW
-          community.general.ufw:
-            state: enabled
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
 
     - name: Drop the existing SSH connection
       ansible.builtin.meta: reset_connection
-      when: not ansible_check_mode
 
-    - name: Verify a fresh SSH connection before continuing to the next host
+    - name: Verify a fresh SSH connection before moving to the next host
       ansible.builtin.wait_for_connection:
         connect_timeout: 5
         timeout: 15
-      when: not ansible_check_mode

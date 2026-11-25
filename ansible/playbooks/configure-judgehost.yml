@@ -1,83 +1,42 @@
 ---
-# For source installs with the judgehost/ prefix and upstream sudoers rules.
-# Use to provision judgehost API credentials and daemon run accounts.
-# Site-specific sudoers/chroot ownership fixes depend on the installed version.
+# For source installs under /opt/domjudge with the upstream sudoers rules.
 - name: Configure the DOMjudge judgehost
   hosts: judgehosts
   gather_facts: false
   become: true
-  any_errors_fatal: true
   vars:
     domjudge_dir: /opt/domjudge
-    domjudge_judgings_dir: "{{ domjudge_dir }}/judgehost/judgings"
     domjudge_user: domjudge
     api_user: judgehost
-
   vars_prompt:
     - name: api_url
-      prompt: "Enter the DOMjudge HTTP(S) API URL"
+      prompt: "Enter the DOMjudge API URL"
       private: false
     - name: api_pass
       prompt: "Enter the judgehost API password"
       private: true
-
-  pre_tasks:
-    - name: Require valid API credentials
+  tasks:
+    - name: Refuse credentials that would break restapi.secret
       ansible.builtin.assert:
         that:
-          - (api_url | default('') | urlsplit('scheme')) in ['http', 'https']
-          - (api_url | urlsplit('hostname')) is string
-          - api_url is match('^\S+$')
-          - (api_user | default('')) is match('^\S+$')
-          - (api_pass | default('')) is match('^\S+$')
+          - api_url is match('^https?://\S+$')
+          - api_pass is match('^\S+$')
       no_log: true
 
-    - name: Validate the requested judge daemon account numbers
-      ansible.builtin.assert:
-        that:
-          - domjudge_run_ids is sequence and domjudge_run_ids is not string and domjudge_run_ids is not mapping
-          - domjudge_run_ids | length > 0
-          - domjudge_run_ids | map('string') | reject('match', '^(0|[1-9][0-9]*)$') | list | length == 0
-          - domjudge_run_ids | map('string') | unique | list | length == domjudge_run_ids | length
-        fail_msg: "Set domjudge_run_ids to the judge daemon numbers for this host."
-
-    - name: Verify the upstream sudo rule for runguard
+    - name: Verify the upstream sudo rules the judgedaemon relies on
       ansible.builtin.command:
-        argv:
-          - sudo
-          - -n
-          - -l
-          - -U
-          - "{{ domjudge_user }}"
-          - --
-          - "{{ domjudge_dir }}/judgehost/bin/runguard"
+        argv: "{{ ['sudo', '-n', '-l', '-U', domjudge_user, '--'] + item }}"
+      loop:
+        - ["{{ domjudge_dir }}/judgehost/bin/runguard"]
+        - [/bin/chown, -R, "{{ domjudge_user }}:", "{{ domjudge_dir }}/judgehost/judgings/x/compile"]
       changed_when: false
-      check_mode: false
 
-    - name: Verify the upstream sudo rule for reclaiming compilation files
-      ansible.builtin.command:
-        argv:
-          - sudo
-          - -n
-          - -l
-          - -U
-          - "{{ domjudge_user }}"
-          - --
-          - /bin/chown
-          - -R
-          - "{{ domjudge_user }}:"
-          - "{{ domjudge_judgings_dir }}/ansible-sudo-check/compile"
-      changed_when: false
-      check_mode: false
-
-  tasks:
-    - name: Use normal executable permissions for runguard
+    - name: Drop the SUID bit from runguard, which upstream runs through sudo
       ansible.builtin.file:
         path: "{{ domjudge_dir }}/judgehost/bin/runguard"
         owner: root
         group: "{{ domjudge_user }}"
         mode: "0755"
-        state: file
 
     - name: Write judgehost API credentials
       ansible.builtin.copy:
@@ -86,15 +45,12 @@
         owner: "{{ domjudge_user }}"
         mode: "0600"
       no_log: true
-      diff: false
 
     - name: Ensure the shared domjudge-run group exists
       ansible.builtin.group:
         name: domjudge-run
-        state: present
-      register: domjudge_run_group
 
-    - name: Configure unprivileged judge daemon accounts
+    - name: Configure the judge daemon run accounts
       ansible.builtin.user:
         name: "domjudge-run-{{ item }}"
         groups: domjudge-run
@@ -102,6 +58,4 @@
         home: /nonexistent
         create_home: false
         shell: /bin/false
-        state: present
       loop: "{{ domjudge_run_ids }}"
-      when: not (ansible_check_mode and domjudge_run_group is changed)

@@ -1,5 +1,0 @@
----
-- name: Remove the account and its files outside the home directory
-  ansible.builtin.import_playbook: remove-user.yml
-  vars:
-    remove_shared_files: true

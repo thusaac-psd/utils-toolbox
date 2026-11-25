@@ -1,95 +1,55 @@
 ---
-- name: Remove a contest account
+- name: Remove a contest account and its files
   hosts: contestants
   gather_facts: false
   become: true
-  strategy: linear
-  vars:
-    cleanup_paths:
-      - /tmp
-      - /var/tmp
-      - /var/spool
-      - /run/user
-      - /dev/shm
   vars_prompt:
     - name: user_to_remove
       prompt: "Enter the contest username to remove"
       private: false
-  pre_tasks:
-    - name: Require an explicitly managed contest account
-      any_errors_fatal: true
+  tasks:
+    - name: Only remove accounts listed in contest_managed_accounts
       ansible.builtin.assert:
-        that:
-          - (user_to_remove | default('')) is match('^[a-z_][a-z0-9_-]*[$]?$')
-          - user_to_remove != 'root'
-          - user_to_remove in (contest_managed_accounts | default([]))
-          - user_to_remove not in (contest_protected_accounts | default([]))
-        fail_msg: "Only accounts in contest_managed_accounts can be removed."
+        that: user_to_remove in contest_managed_accounts
 
-    - name: Resolve the local contest account
+    - name: Look up the account
       ansible.builtin.getent:
         database: passwd
-        service: files
         key: "{{ user_to_remove }}"
         fail_key: false
 
-    - name: Record the account on this host
-      ansible.builtin.set_fact:
-        removal_account: "{{ ansible_facts.getent_passwd[user_to_remove] | default(none) }}"
-
-    - name: Resolve the management login UID without privilege escalation
-      ansible.builtin.command: id -u
+    - name: Look up the SSH login used by Ansible
+      ansible.builtin.command: id -un
       become: false
-      register: management_uid
+      register: ssh_login
       changed_when: false
-      check_mode: false
 
-    - name: Protect the management login and system accounts
-      any_errors_fatal: true
-      ansible.builtin.assert:
-        that:
-          - user_to_remove != (ansible_user | default(''))
-          - (removal_account[1] | int) >= 1000
-          - (removal_account[1] | int) != 65534
-          - (removal_account[1] | int) != (management_uid.stdout | int)
-        fail_msg: "Refusing to remove a system or management account."
-      when: removal_account is not none
-
-  tasks:
-    - name: Remove the existing account
-      when: removal_account is not none
+    - name: Remove the account when it exists
+      when: ansible_facts.getent_passwd[user_to_remove] is not none
+      vars:
+        uid: "{{ ansible_facts.getent_passwd[user_to_remove][1] }}"
       block:
-        - name: Stop the systemd user slice during extended cleanup
-          when:
-            - remove_shared_files | default(false) | bool
-            - not ansible_check_mode
-          block:
-            - name: Check whether the user slice is active
-              ansible.builtin.command:
-                argv: [systemctl, is-active, "user-{{ removal_account[1] }}.slice"]
-              register: user_slice
-              changed_when: false
-              failed_when: user_slice.rc not in [0, 3, 4]
+        - name: Refuse to remove system accounts or the SSH login
+          ansible.builtin.assert:
+            that:
+              - uid | int >= 1000
+              - user_to_remove != ssh_login.stdout
+          any_errors_fatal: true
 
-            - name: Stop the active user slice
-              ansible.builtin.systemd_service:
-                name: "user-{{ removal_account[1] }}.slice"
-                state: stopped
-              when: user_slice.rc == 0
-
-        - name: Terminate the contest user's processes
-          ansible.builtin.command:
-            argv: [pkill, -KILL, -u, "{{ removal_account[1] }}"]
+        - name: Kill the account's processes
+          ansible.builtin.command: pkill -KILL -u {{ uid }}
           register: pkill_result
-          failed_when: pkill_result.rc not in [0, 1]
           changed_when: pkill_result.rc == 0
-          when: not ansible_check_mode
+          failed_when: pkill_result.rc > 1
 
-        - name: Clean up files outside the user's home directory
-          ansible.builtin.include_tasks: tasks/cleanup-user-files.yml
-          when: remove_shared_files | default(false) | bool
+        - name: Delete the account's files outside its home directory
+          ansible.builtin.command:
+            argv: [find, /tmp, /var/tmp, /var/spool, /dev/shm, -xdev, -uid, "{{ uid }}",
+                   "(", "!", -type, d, -o, -empty, ")", -delete, -print]
+          register: deleted_files
+          changed_when: deleted_files.stdout | length > 0
 
-        - name: Remove the account and home directory
+        - name: Remove the account and its home directory
           ansible.builtin.user:
             name: "{{ user_to_remove }}"
             state: absent

@@ -2,70 +2,38 @@
 - name: Audit managed host connectivity
   hosts: all
   gather_facts: false
-  strategy: linear
   vars:
     discovered_inventory_path: "{{ playbook_dir | dirname }}/discovered.ini"
     unreachable_report_path: "{{ playbook_dir | dirname }}/unreachable_hosts.log"
-    discovery_timeout: 5
   tasks:
-    - name: Check connectivity and availability of remote Python
+    - name: Check connectivity
       ansible.builtin.wait_for_connection:
-        connect_timeout: "{{ discovery_timeout }}"
-        timeout: "{{ discovery_timeout }}"
-      check_mode: false
+        connect_timeout: 5
+        timeout: 5
       register: connection_result
       ignore_errors: true
-      ignore_unreachable: true
 
-    - name: Collect successful probes
-      ansible.builtin.set_fact:
-        reachable_hosts: >-
-          {%- set online = namespace(hosts=[]) -%}
-          {%- for host in ansible_play_hosts_all -%}
-            {%- set result = hostvars[host].connection_result -%}
-            {%- if result is succeeded and result is not unreachable -%}
-              {%- set online.hosts = online.hosts + [host] -%}
-            {%- endif -%}
-          {%- endfor -%}
-          {{ online.hosts }}
-      run_once: true
+    - name: Group reachable hosts
+      ansible.builtin.group_by:
+        key: reachable
+      when: connection_result is succeeded
 
-    - name: Validate the controller output paths
-      ansible.builtin.assert:
-        that:
-          - unreachable_report_path is abs
-          - not (write_discovered_inventory | default(true) | bool) or discovered_inventory_path is abs
-          - not (write_discovered_inventory | default(true) | bool) or discovered_inventory_path != unreachable_report_path
-      run_once: true
-
-    - name: Write inventory of reachable hosts
+    - name: Write the inventory of reachable hosts
       ansible.builtin.template:
         src: ../templates/inventory.j2
         dest: "{{ discovered_inventory_path }}"
         mode: "0600"
       delegate_to: localhost
-      become: false
       run_once: true
-      when: write_discovered_inventory | default(true) | bool
 
-    - name: Write the connectivity report
+    - name: Write the report of unreachable hosts
       ansible.builtin.copy:
         dest: "{{ unreachable_report_path }}"
         mode: "0600"
         content: |
-          UNREACHABLE HOSTS REPORT
-          Generated on: {{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}
-          {% for host in ansible_play_hosts_all | difference(reachable_hosts) | sort %}
-          {{ host }} - {{ hostvars[host].connection_result.msg | default('Connection probe failed') }}
+          Unreachable hosts as of {{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}
+          {% for host in ansible_play_hosts_all | difference(groups['reachable'] | default([])) %}
+          {{ host }}: {{ hostvars[host].connection_result.msg }}
           {% endfor %}
       delegate_to: localhost
-      become: false
-      run_once: true
-
-    - name: Display the connectivity summary
-      ansible.builtin.debug:
-        msg: >-
-          {{ reachable_hosts | length }}/{{ ansible_play_hosts_all | length }} hosts reachable.
-          Report: {{ unreachable_report_path }}.
-          {% if write_discovered_inventory | default(true) | bool %}Inventory: {{ discovered_inventory_path }}.{% endif %}
       run_once: true

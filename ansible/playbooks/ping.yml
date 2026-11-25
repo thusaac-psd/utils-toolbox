@@ -1,5 +1,0 @@
----
-- name: Run the connectivity audit without exporting an inventory
-  ansible.builtin.import_playbook: discover.yml
-  vars:
-    write_discovered_inventory: false

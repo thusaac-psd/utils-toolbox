@@ -4,11 +4,6 @@
   gather_facts: false
   become: true
   tasks:
-    - name: Check installed packages
-      ansible.builtin.package_facts:
-        manager: auto
-
     - name: Disable the UFW firewall
       community.general.ufw:
         state: disabled
-      when: "'ufw' in ansible_facts.packages"
