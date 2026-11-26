@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# Ansible output and local credentials
+discovered.ini
+unreachable_hosts.log
+*.retry
+ansible-key*
+/ansible/inventories/site/
+*.csv
+__pycache__/

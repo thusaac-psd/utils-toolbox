@@ -1,0 +1,61 @@
+---
+# For source installs under /opt/domjudge with the upstream sudoers rules.
+- name: Configure the DOMjudge judgehost
+  hosts: judgehosts
+  gather_facts: false
+  become: true
+  vars:
+    domjudge_dir: /opt/domjudge
+    domjudge_user: domjudge
+    api_user: judgehost
+  vars_prompt:
+    - name: api_url
+      prompt: "Enter the DOMjudge API URL"
+      private: false
+    - name: api_pass
+      prompt: "Enter the judgehost API password"
+      private: true
+  tasks:
+    - name: Refuse credentials that would break restapi.secret
+      ansible.builtin.assert:
+        that:
+          - api_url is match('^https?://\S+$')
+          - api_pass is match('^\S+$')
+      no_log: true
+
+    - name: Verify the upstream sudo rules the judgedaemon relies on
+      ansible.builtin.command:
+        argv: "{{ ['sudo', '-n', '-l', '-U', domjudge_user, '--'] + item }}"
+      loop:
+        - ["{{ domjudge_dir }}/judgehost/bin/runguard"]
+        - [/bin/chown, -R, "{{ domjudge_user }}:", "{{ domjudge_dir }}/judgehost/judgings/x/compile"]
+      changed_when: false
+
+    - name: Drop the SUID bit from runguard, which upstream runs through sudo
+      ansible.builtin.file:
+        path: "{{ domjudge_dir }}/judgehost/bin/runguard"
+        owner: root
+        group: "{{ domjudge_user }}"
+        mode: "0755"
+
+    - name: Write judgehost API credentials
+      ansible.builtin.copy:
+        dest: "{{ domjudge_dir }}/judgehost/etc/restapi.secret"
+        content: "default {{ api_url }} {{ api_user }} {{ api_pass }}\n"
+        owner: "{{ domjudge_user }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Ensure the shared domjudge-run group exists
+      ansible.builtin.group:
+        name: domjudge-run
+
+    - name: Configure the judge daemon run accounts
+      ansible.builtin.user:
+        name: "domjudge-run-{{ item }}"
+        groups: domjudge-run
+        append: true
+        home: /nonexistent
+        create_home: false
+        shell: /bin/false
+      loop: "{{ domjudge_run_ids }}"

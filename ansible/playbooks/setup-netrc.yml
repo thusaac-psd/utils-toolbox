@@ -1,0 +1,48 @@
+---
+- name: Configure .netrc on contestant machines
+  hosts: contestants
+  gather_facts: false
+  become: true
+  vars_prompt:
+    - name: domjudge_host
+      prompt: "Enter the DOMjudge server hostname or IP"
+      private: false
+    - name: local_user
+      prompt: "Enter the existing Linux user account"
+      private: false
+    - name: csv_path
+      prompt: "Enter the absolute controller path to the CSV (ip,oj_username,oj_password)"
+      private: false
+  tasks:
+    - name: Read team credentials from the controller
+      community.general.read_csv:
+        path: "{{ csv_path }}"
+        key: ip
+      register: contest_credentials
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+
+    - name: Fail when the host has no CSV entry
+      ansible.builtin.fail:
+        msg: "No CSV entry for {{ ansible_host | default(inventory_hostname) }}."
+      when: (ansible_host | default(inventory_hostname)) not in contest_credentials.dict
+
+    - name: Look up the user's home directory
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ local_user }}"
+
+    - name: Write the team credentials to .netrc
+      ansible.builtin.copy:
+        dest: "{{ ansible_facts.getent_passwd[local_user][4] }}/.netrc"
+        owner: "{{ local_user }}"
+        mode: "0600"
+        content: |
+          machine {{ domjudge_host }}
+          login {{ team.oj_username }}
+          password {{ team.oj_password }}
+      vars:
+        team: "{{ contest_credentials.dict[ansible_host | default(inventory_hostname)] }}"
+      no_log: true

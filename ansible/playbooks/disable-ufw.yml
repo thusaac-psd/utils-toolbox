@@ -1,0 +1,9 @@
+---
+- name: Disable UFW on contestant machines
+  hosts: contestants
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Disable the UFW firewall
+      community.general.ufw:
+        state: disabled

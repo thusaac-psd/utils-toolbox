@@ -1,0 +1,56 @@
+---
+- name: Remove a contest account and its files
+  hosts: contestants
+  gather_facts: false
+  become: true
+  vars_prompt:
+    - name: user_to_remove
+      prompt: "Enter the contest username to remove"
+      private: false
+  tasks:
+    - name: Only remove accounts listed in contest_managed_accounts
+      ansible.builtin.assert:
+        that: user_to_remove in contest_managed_accounts
+
+    - name: Look up the account
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_to_remove }}"
+        fail_key: false
+
+    - name: Look up the SSH login used by Ansible
+      ansible.builtin.command: id -un
+      become: false
+      register: ssh_login
+      changed_when: false
+
+    - name: Remove the account when it exists
+      when: ansible_facts.getent_passwd[user_to_remove] is not none
+      vars:
+        uid: "{{ ansible_facts.getent_passwd[user_to_remove][1] }}"
+      block:
+        - name: Refuse to remove system accounts or the SSH login
+          ansible.builtin.assert:
+            that:
+              - uid | int >= 1000
+              - user_to_remove != ssh_login.stdout
+          any_errors_fatal: true
+
+        - name: Kill the account's processes
+          ansible.builtin.command: pkill -KILL -u {{ uid }}
+          register: pkill_result
+          changed_when: pkill_result.rc == 0
+          failed_when: pkill_result.rc > 1
+
+        - name: Delete the account's files outside its home directory
+          ansible.builtin.command:
+            argv: [find, /tmp, /var/tmp, /var/spool, /dev/shm, -xdev, -uid, "{{ uid }}",
+                   "(", "!", -type, d, -o, -empty, ")", -delete, -print]
+          register: deleted_files
+          changed_when: deleted_files.stdout | length > 0
+
+        - name: Remove the account and its home directory
+          ansible.builtin.user:
+            name: "{{ user_to_remove }}"
+            state: absent
+            remove: true

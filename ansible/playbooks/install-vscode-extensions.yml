@@ -1,0 +1,30 @@
+---
+- name: Install VS Code extensions for a contest user
+  hosts: contestants
+  gather_facts: false
+  become: true
+  vars_prompt:
+    - name: target_user
+      prompt: "Enter the username to install the VS Code extensions for"
+      private: false
+  vars:
+    vscode_extensions:
+      - ms-vscode.cpptools
+      - ms-python.python
+      - Oracle.oracle-java
+      - formulahendry.code-runner
+      - MS-CEINTL.vscode-language-pack-zh-hans
+  tasks:
+    - name: List installed extensions
+      ansible.builtin.command: code --list-extensions
+      become_user: "{{ target_user }}"
+      register: installed_extensions
+      changed_when: false
+
+    - name: Install missing extensions
+      ansible.builtin.command:
+        argv: "{{ ['code'] + (['--install-extension'] | product(missing_extensions) | flatten) }}"
+      become_user: "{{ target_user }}"
+      vars:
+        missing_extensions: "{{ vscode_extensions | map('lower') | difference(installed_extensions.stdout_lines | map('lower')) }}"
+      when: missing_extensions | length > 0

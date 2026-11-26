@@ -1,0 +1,26 @@
+---
+- name: Create a contest user
+  hosts: contestants
+  gather_facts: false
+  become: true
+  vars_prompt:
+    - name: new_username
+      prompt: "Enter the new username"
+      private: false
+    - name: new_user_password
+      prompt: "Enter the password for the new user"
+      private: true
+      confirm: true
+  tasks:
+    - name: Refuse an empty password
+      ansible.builtin.assert:
+        that: new_user_password | length > 0
+      no_log: true
+
+    - name: Create the account with its initial password
+      ansible.builtin.user:
+        name: "{{ new_username }}"
+        password: "{{ new_user_password | password_hash('sha512') }}"
+        update_password: on_create
+        shell: /bin/bash
+      no_log: true

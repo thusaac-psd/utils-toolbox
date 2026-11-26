@@ -1,0 +1,6 @@
+# Reachable hosts as of {{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}.
+# Use together with the site inventory, e.g. --limit 'contestants:&reachable'.
+[reachable]
+{% for host in groups['reachable'] | default([]) %}
+{{ host }}
+{% endfor %}

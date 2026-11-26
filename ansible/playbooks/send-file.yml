@@ -1,0 +1,19 @@
+---
+- name: Send a file to managed computers
+  hosts: contestants
+  gather_facts: false
+  become: true
+  vars_prompt:
+    - name: src_file
+      prompt: "Enter the absolute path to the file on the controller"
+      private: false
+    - name: dest_file
+      prompt: "Enter the absolute destination path on the remote hosts"
+      private: false
+  tasks:
+    - name: Copy the file to the remote hosts
+      ansible.builtin.copy:
+        src: "{{ src_file }}"
+        dest: "{{ dest_file }}"
+        owner: "{{ dest_owner | default(omit) }}"
+        mode: "{{ dest_mode | default(omit) }}"

@@ -1,0 +1,11 @@
+---
+- name: Disable Bluetooth service
+  hosts: contestants
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Stop and mask the Bluetooth service
+      ansible.builtin.systemd_service:
+        name: bluetooth.service
+        state: stopped
+        masked: true

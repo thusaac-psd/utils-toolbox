@@ -1,0 +1,39 @@
+---
+- name: Audit managed host connectivity
+  hosts: all
+  gather_facts: false
+  vars:
+    discovered_inventory_path: "{{ playbook_dir | dirname }}/discovered.ini"
+    unreachable_report_path: "{{ playbook_dir | dirname }}/unreachable_hosts.log"
+  tasks:
+    - name: Check connectivity
+      ansible.builtin.wait_for_connection:
+        connect_timeout: 5
+        timeout: 5
+      register: connection_result
+      ignore_errors: true
+
+    - name: Group reachable hosts
+      ansible.builtin.group_by:
+        key: reachable
+      when: connection_result is succeeded
+
+    - name: Write the inventory of reachable hosts
+      ansible.builtin.template:
+        src: ../templates/inventory.j2
+        dest: "{{ discovered_inventory_path }}"
+        mode: "0600"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Write the report of unreachable hosts
+      ansible.builtin.copy:
+        dest: "{{ unreachable_report_path }}"
+        mode: "0600"
+        content: |
+          Unreachable hosts as of {{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}
+          {% for host in ansible_play_hosts_all | difference(groups['reachable'] | default([])) %}
+          {{ host }}: {{ hostvars[host].connection_result.msg }}
+          {% endfor %}
+      delegate_to: localhost
+      run_once: true
